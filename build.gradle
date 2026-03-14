@@ -32,6 +32,7 @@ dependencies {
 	implementation 'io.github.resilience4j:resilience4j-reactor:2.2.0'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.ai:spring-ai-pdf-document-reader'
+	implementation 'org.springframework.ai:spring-ai-advisors-vector-store'
 	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'com.h2database:h2'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
