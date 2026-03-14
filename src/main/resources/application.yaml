@@ -9,6 +9,11 @@ spring:
       chat:
         options:
           model: llama-3.3-70b-versatile
+      embedding:
+        api-key: ${OPENAI_API_KEY}
+        base-url: https://api.openai.com
+        options:
+          model: text-embedding-3-small
     vectorstore:
       pgvector:
         initialize-schema: true
@@ -21,6 +26,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+
+  webflux:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
 
 server:
   port: 8087
