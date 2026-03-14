@@ -1,6 +1,45 @@
 spring:
   application:
     name: spring-lens
+  ai:
+    openai:
+      api-key: ${GROQ_AI_API_KEY}
+      groq-url: https://api.groq.com/openai/v1/chat/completions
+      base-url: https://api.groq.com/openai
+      chat:
+        options:
+          model: llama-3.3-70b-versatile
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        dimensions: 1536
+        distance-type: COSINE_DISTANCE
+  datasource:
+    url: jdbc:postgresql://localhost:5432/springlens
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: update
 
 server:
-    port: 8082
+  port: 8087
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      groqClient:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always

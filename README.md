@@ -1,6 +1,7 @@
 # SpringLens
 
 Java-native AI knowledge platform that turns any document corpus into clear, cited answers with autonomous agents.
+This will be an AI platform that turns any document corpus into a queryable knowledge base with autonomous agents.
 
 Built with Java 21 + Spring Boot 4.0 + Spring AI
 

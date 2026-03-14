@@ -37,4 +37,6 @@ out/
 .vscode/
 
 ### environment variable ###
+.env
 setenv.sh
+docs

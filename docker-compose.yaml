@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: springlens-postgres
+    environment:
+      POSTGRES_DB: springlens
+      POSTGRES_USER: springlens
+      POSTGRES_PASSWORD: springlens
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U springlens"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

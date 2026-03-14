@@ -14,14 +14,33 @@ java {
 	}
 }
 
+ext {
+	set('springAiVersion', "2.0.0-M2")
+}
+
 repositories {
 	mavenCentral()
+	maven { url 'https://repo.spring.io/milestone' }
 }
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
-	testImplementation 'org.springframework.boot:spring-boot-starter-webflux-test'
+	implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+	implementation 'org.springframework.ai:spring-ai-starter-vector-store-pgvector'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
+	implementation 'io.github.resilience4j:resilience4j-reactor:2.2.0'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	runtimeOnly 'org.postgresql:postgresql'
+	testImplementation 'com.h2database:h2'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.ai:spring-ai-bom:${springAiVersion}"
+	}
 }
 
 tasks.named('test') {
