@@ -51,7 +51,7 @@ public class SpringAiChatService {
                             SearchRequest.builder()
                                     .query(message)
                                     .topK(4)
-                                    .similarityThreshold(0.5)
+                                    .similarityThreshold(0.7)
                                     .build()
                     );
 
@@ -67,8 +67,12 @@ public class SpringAiChatService {
                             ));
 
                     // Step 3: build augmented prompt
+                    // Step 3: build augmented prompt
                     String augmentedMessage = relevantDocs.isEmpty()
-                            ? message
+                            ? "The user asked: " + message +
+                            "\n\nNo relevant information was found in the knowledge base. " +
+                            "Politely inform the user that this question is outside the " +
+                            "scope of the available documents."
                             : "Context from documents:" + System.lineSeparator() +
                             context + System.lineSeparator() + System.lineSeparator() +
                             "Question: " + message;
