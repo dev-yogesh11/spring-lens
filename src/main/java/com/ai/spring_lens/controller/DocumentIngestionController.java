@@ -1,6 +1,7 @@
 package com.ai.spring_lens.controller;
 
 import com.ai.spring_lens.service.DocumentIngestionService;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.web.bind.annotation.*;
@@ -8,7 +9,6 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Map;
 
 @RestController
@@ -25,31 +25,35 @@ public class DocumentIngestionController {
     public Mono<ResponseEntity<Map<String, Object>>> ingest(
             @RequestPart("file") FilePart filePart
     ) {
-        return Mono.fromCallable(() -> {
-                    Path tempFile = Files.createTempFile("upload-", "-" + filePart.filename());
+        return Mono.fromCallable(() ->
+                        Files.createTempFile("upload-", "-" + filePart.filename())
+                )
+                .flatMap(tempFile ->
+                        filePart.transferTo(tempFile)
+                                .then(Mono.fromCallable(() -> {
 
-                    // write file content to temp file
-                    filePart.transferTo(tempFile).block();
+                                    DocumentIngestionService.IngestionResult result =
+                                            ingestionService.ingest(
+                                                    new FileSystemResource(tempFile),
+                                                    filePart.filename()
+                                            );
 
-                    int chunks = ingestionService.ingest(
-                            new org.springframework.core.io.FileSystemResource(tempFile)
-                    );
+                                    Files.deleteIfExists(tempFile);
 
-                    // cleanup
-                    Files.deleteIfExists(tempFile);
-
-                    return ResponseEntity.<Map<String, Object>>ok(Map.of(
-                            "filename", filePart.filename(),
-                            "chunks", chunks,
-                            "status", "ingested"
-                    ));
-                })
+                                    return ResponseEntity.<Map<String, Object>>ok(
+                                            Map.of(
+                                                    "filename", result.fileName(),
+                                                    "chunks", result.chunks(),
+                                                    "status", result.status()
+                                            ));
+                                })))
                 .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(ex -> Mono.just(
-                        ResponseEntity.internalServerError()
-                                .body(Map.<String, Object>of(
-                                        "error", "Ingestion failed",
-                                        "message", ex.getMessage()))
-                ));
+                .onErrorResume(ex ->
+                        Mono.just(
+                                ResponseEntity.internalServerError()
+                                        .body(Map.<String, Object>of(
+                                                "error", "Ingestion failed",
+                                                "message", ex.getMessage()
+                                        ))));
     }
 }

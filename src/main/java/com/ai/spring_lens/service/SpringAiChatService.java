@@ -57,7 +57,8 @@ public class SpringAiChatService {
 
                     // Step 2: build context from retrieved chunks
                     String context = relevantDocs.stream()
-                            .map(doc -> "Source: " + doc.getMetadata().get("file_name") +
+                            .map(doc -> "Source: " + doc.getMetadata().getOrDefault("original_file_name",
+                                    doc.getMetadata().get("file_name")) +
                                     " (Page " + doc.getMetadata().get("page_number") + ")" +
                                     System.lineSeparator() + "Content: " +
                                     doc.getFormattedContent())
