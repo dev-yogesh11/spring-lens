@@ -1,5 +1,6 @@
 package com.ai.spring_lens.service;
 
+import com.ai.spring_lens.config.IngestionProperties;
 import com.ai.spring_lens.model.response.ChatResponse;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -10,6 +11,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -29,16 +31,18 @@ public class SpringAiChatService {
     private final ChatClient chatClient;
     private final CircuitBreaker circuitBreaker;
     private final VectorStore vectorStore;
+    private final IngestionProperties properties;
 
     public SpringAiChatService(ChatClient.Builder builder,
                                CircuitBreakerRegistry circuitBreakerRegistry,
-                               VectorStore vectorStore) {
+                               VectorStore vectorStore, IngestionProperties properties) {
         this.vectorStore = vectorStore;
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
                 .build();
         this.circuitBreaker = circuitBreakerRegistry
                 .circuitBreaker("groqClient");
+        this.properties = properties;
     }
 
     public Mono<ChatResponse> chat(String message) {
@@ -49,8 +53,8 @@ public class SpringAiChatService {
                     List<Document> relevantDocs = vectorStore.similaritySearch(
                             SearchRequest.builder()
                                     .query(message)
-                                    .topK(4)
-                                    .similarityThreshold(0.7)
+                                    .topK(properties.getTopK())
+                                    .similarityThreshold(properties.getSimilarityThreshold())
                                     .build()
                     );
 
@@ -128,4 +132,44 @@ public class SpringAiChatService {
                     ));
                 });
     }
+
+    public Flux<String> stream(String message) {
+        return Mono.fromCallable(() -> {
+                    // blocking similarity search — runs on boundedElastic
+                    List<Document> relevantDocs = vectorStore.similaritySearch(
+                            SearchRequest.builder()
+                                    .query(message)
+                                    .topK(properties.getTopK())
+                                    .similarityThreshold(properties.getSimilarityThreshold())
+                                    .build()
+                    );
+
+                    String context = relevantDocs.stream()
+                            .map(doc -> "Source: " + doc.getMetadata().getOrDefault(
+                                    "original_file_name", doc.getMetadata().get("file_name")) +
+                                    " (Page " + doc.getMetadata().get("page_number") + ")" +
+                                    System.lineSeparator() + "Content: " + doc.getText())
+                            .collect(Collectors.joining(
+                                    System.lineSeparator() + System.lineSeparator() +
+                                            "---" + System.lineSeparator() + System.lineSeparator()
+                            ));
+
+                    log.debug("Streaming RAG retrieved {} chunks for query={}",
+                            relevantDocs.size(), message);
+
+                    return relevantDocs.isEmpty()
+                            ? "The user asked: " + message +
+                            "\n\nNo relevant information found. Politely inform the user."
+                            : "Context from documents:" + System.lineSeparator() +
+                            context + System.lineSeparator() + System.lineSeparator() +
+                            "Question: " + message;
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMapMany(augmentedMessage -> chatClient.prompt()
+                        .user(augmentedMessage)
+                        .stream()
+                        .content()
+                );
+    }
+
 }
