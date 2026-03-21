@@ -63,9 +63,6 @@ public class SpringAiChatService {
                 .build();
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
-                .defaultAdvisors(
-                        MessageChatMemoryAdvisor.builder(chatMemory).build()
-                )
                 .build();
         this.circuitBreaker = circuitBreakerRegistry
                 .circuitBreaker("groqClient");
@@ -151,6 +148,7 @@ public class SpringAiChatService {
 
                     return chatClient.prompt()
                             .user(augmentedMessage)
+                            .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                             .advisors(advisor -> advisor
                                     .param(ChatMemory.CONVERSATION_ID,
                                             conversationId != null ? conversationId : "default"))
@@ -209,12 +207,12 @@ public class SpringAiChatService {
                     return buildAugmentedMessage(message, relevantDocs);
                 })
                 .subscribeOn(Schedulers.boundedElastic())
+                .transform(CircuitBreakerOperator.of(circuitBreaker))
                 .flatMapMany(augmentedMessage -> chatClient.prompt()
                         .user(augmentedMessage)
                         .stream()
                         .content()
                 )
-                .transform(CircuitBreakerOperator.of(circuitBreaker))
                 .onErrorResume(ex -> Flux.just(
                         "Service temporarily unavailable. Please try again shortly."
                 ));
@@ -224,8 +222,9 @@ public class SpringAiChatService {
     // query() — configurable retrieval strategy, no memory
     // Primary production endpoint — returns structured QueryResponse
     // ---------------------------------------------------------------
-
     public Mono<QueryResponse> query(String message, String retrievalStrategy) {
+        long start = System.currentTimeMillis();
+
         return Mono.fromCallable(() -> {
                     List<Document> relevantDocs = retrieve(message, retrievalStrategy);
 
@@ -246,19 +245,47 @@ public class SpringAiChatService {
 
                     String augmentedMessage = buildAugmentedMessage(message, relevantDocs);
 
-                    log.debug("Query retrieved {} chunks strategy='{}' query='{}'",
-                            relevantDocs.size(), retrievalStrategy, message);
+                    // Resolve actual strategy name for response — reflects config default
+                    // when request param is null
+                    String resolvedStrategy = (retrievalStrategy != null
+                            && !retrievalStrategy.isBlank())
+                            ? retrievalStrategy
+                            : retrievalProperties.getDefaultStrategy();
 
-                    String answer = chatClient.prompt()
+                    log.debug("Query retrieved {} chunks strategy='{}' query='{}'",
+                            relevantDocs.size(), resolvedStrategy, message);
+
+                    // Switch from .content() to .chatResponse() to capture token metadata
+                    // Same pattern used in chat() method — consistent across all endpoints
+                    var chatResponse = chatClient.prompt()
                             .user(augmentedMessage)
                             .call()
-                            .content();
+                            .chatResponse();
+
+                    var metadata = chatResponse != null ? chatResponse.getMetadata() : null;
+                    var usage = metadata != null ? metadata.getUsage() : null;
+                    String answer = chatResponse != null
+                            && chatResponse.getResult() != null
+                            ? chatResponse.getResult().getOutput().getText()
+                            : "";
+
+                    log.debug("Query LLM response: strategy='{}' promptTokens={} " +
+                                    "completionTokens={} latencyMs={}",
+                            resolvedStrategy,
+                            usage != null ? usage.getPromptTokens() : 0,
+                            usage != null ? usage.getCompletionTokens() : 0,
+                            System.currentTimeMillis() - start);
 
                     return new QueryResponse(
                             answer,
                             sources,
                             relevantDocs.isEmpty() ? 0.0 : 0.8,
-                            UUID.randomUUID()
+                            UUID.randomUUID(),
+                            resolvedStrategy,
+                            usage != null ? usage.getPromptTokens() : 0,
+                            usage != null ? usage.getCompletionTokens() : 0,
+                            usage != null ? usage.getTotalTokens() : 0,
+                            System.currentTimeMillis() - start
                     );
                 })
                 .subscribeOn(Schedulers.boundedElastic())
