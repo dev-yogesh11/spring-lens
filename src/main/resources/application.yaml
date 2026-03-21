@@ -77,7 +77,7 @@ springlens:
       key-Prefix: springlens:chat-
 
   retrieval:
-    default-strategy: hybrid
+    default-strategy: hybrid-rerank
 
   hybrid-search:
     fts-weight: 0.3
