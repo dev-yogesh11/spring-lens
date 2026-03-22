@@ -41,9 +41,10 @@ public class ReciprocalRankFusionService {
      *
      * @param query             natural language query
      * @param similarityThreshold minimum cosine similarity for vector results
+     * @param tenantId            tenant UUID — filters both vector and FTS results
      * @return merged and re-ranked list of Documents, capped at finalTopK
      */
-    public List<Document> hybridSearch(String query, double similarityThreshold) {
+    public List<Document> hybridSearch(String query, double similarityThreshold, UUID tenantId) {
 
         // Step 1: vector similarity search — semantic meaning
         List<Document> vectorResults = vectorStore.similaritySearch(
@@ -51,6 +52,7 @@ public class ReciprocalRankFusionService {
                         .query(query)
                         .topK(properties.getVectorTopK())
                         .similarityThreshold(similarityThreshold)
+                        .filterExpression("tenant_id == '" + tenantId + "'")
                         .build()
         );
 

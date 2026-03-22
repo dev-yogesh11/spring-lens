@@ -8,6 +8,7 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Pure vector similarity search — Phase 1 retrieval logic.
@@ -34,7 +35,7 @@ public class VectorOnlyRetrievalStrategy implements RetrievalStrategy {
     }
 
     @Override
-    public List<Document> retrieve(String query, double similarityThreshold) {
+    public List<Document> retrieve(String query, double similarityThreshold, UUID tenantId) {
         log.debug("VectorOnly retrieval for query='{}'", query);
 
         List<Document> results = vectorStore.similaritySearch(
@@ -42,6 +43,7 @@ public class VectorOnlyRetrievalStrategy implements RetrievalStrategy {
                         .query(query)
                         .topK(properties.getTopK())
                         .similarityThreshold(similarityThreshold)
+                        .filterExpression("tenant_id == '" + tenantId + "'")
                         .build()
         );
 

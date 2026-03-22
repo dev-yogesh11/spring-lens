@@ -7,6 +7,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Hybrid search — vector similarity + PostgreSQL full-text search
@@ -34,11 +35,11 @@ public class HybridRetrievalStrategy implements RetrievalStrategy {
     }
 
     @Override
-    public List<Document> retrieve(String query, double similarityThreshold) {
+    public List<Document> retrieve(String query, double similarityThreshold, UUID tenantId) {
         log.debug("Hybrid retrieval for query='{}'", query);
 
         List<Document> results = rrfService.hybridSearch(
-                query, similarityThreshold
+                query, similarityThreshold,tenantId
         );
 
         log.debug("Hybrid retrieved {} chunks for query='{}'",

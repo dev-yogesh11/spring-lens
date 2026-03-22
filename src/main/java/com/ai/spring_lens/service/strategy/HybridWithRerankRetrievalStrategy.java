@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Hybrid search + Cohere cross-encoder reranking — Phase 2 Week 12.
@@ -52,13 +53,13 @@ public class HybridWithRerankRetrievalStrategy implements RetrievalStrategy {
     }
 
     @Override
-    public List<Document> retrieve(String query, double similarityThreshold) {
+    public List<Document> retrieve(String query, double similarityThreshold, UUID tenantId) {
         log.debug("HybridRerank retrieval for query='{}'", query);
 
         // Step 1: RRF retrieves top candidates — vector + FTS merged
         // Uses HybridSearchProperties.finalTopK as candidate pool
         List<Document> rrfCandidates = rrfService.hybridSearch(
-                query, similarityThreshold
+                query, similarityThreshold,tenantId
         );
 
         log.debug("RRF candidates={} for query='{}'",

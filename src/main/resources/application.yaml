@@ -62,6 +62,10 @@ resilience4j:
 
 springlens:
 
+  cost:
+    input-token-price-per-million: 0.15
+    output-token-price-per-million: 0.60
+
   jwt:
     secret: ${JWT_SECRET}
     expiry-seconds: 3600

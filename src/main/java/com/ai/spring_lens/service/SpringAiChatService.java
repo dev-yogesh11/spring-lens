@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import com.ai.spring_lens.security.TenantContext;
 
 import java.util.List;
 import java.util.Map;
@@ -47,6 +48,7 @@ public class SpringAiChatService {
     private final Map<String, RetrievalStrategy> retrievalStrategies;
     private final RetrievalProperties retrievalProperties;
     private final ChatMemoryProperties chatMemoryProperties;
+    private final AuditService auditService;
 
     public SpringAiChatService(ChatClient.Builder builder,
                                CircuitBreakerRegistry circuitBreakerRegistry,
@@ -54,7 +56,7 @@ public class SpringAiChatService {
                                IngestionProperties properties,
                                ChatMemoryRepository chatMemoryRepository,
                                Map<String, RetrievalStrategy> retrievalStrategies,
-                               RetrievalProperties retrievalProperties, ChatMemoryProperties chatMemoryProperties) {
+                               RetrievalProperties retrievalProperties, ChatMemoryProperties chatMemoryProperties, AuditService auditService) {
         this.vectorStore = vectorStore;
         this.properties = properties;
         this.retrievalStrategies = retrievalStrategies;
@@ -69,6 +71,7 @@ public class SpringAiChatService {
         this.circuitBreaker = circuitBreakerRegistry
                 .circuitBreaker("groqClient");
         this.chatMemoryProperties = chatMemoryProperties;
+        this.auditService = auditService;
         log.info("ChatMemoryRepository implementation: {}",
                 chatMemoryRepository.getClass().getName());
         log.info("Available retrieval strategies: {}",
@@ -80,7 +83,7 @@ public class SpringAiChatService {
     // Falls back to "hybrid" if unknown strategy name provided
     // ---------------------------------------------------------------
 
-    private List<Document> retrieve(String query, String requestStrategy) {
+    private List<Document> retrieve(String query, String requestStrategy, UUID tenantId) {
         String strategyName = (requestStrategy != null && !requestStrategy.isBlank())
                 ? requestStrategy
                 : retrievalProperties.getDefaultStrategy();
@@ -94,7 +97,7 @@ public class SpringAiChatService {
         }
 
         log.info("Retrieval strategy='{}' query='{}'", strategyName, query);
-        return strategy.retrieve(query, properties.getSimilarityThreshold());
+        return strategy.retrieve(query, properties.getSimilarityThreshold(),tenantId);
     }
 
     // ---------------------------------------------------------------
@@ -135,7 +138,8 @@ public class SpringAiChatService {
     // ---------------------------------------------------------------
 
     public Mono<ChatResponse> chat(String message, String conversationId,
-                                   Boolean memoryEnabled) {
+                                   Boolean memoryEnabled, UUID tenantId,
+                                   TenantContext tenantContext) {
         long start = System.currentTimeMillis();
 
         return Mono.fromCallable(() -> {
@@ -145,6 +149,7 @@ public class SpringAiChatService {
                                     .query(message)
                                     .topK(properties.getTopK())
                                     .similarityThreshold(properties.getSimilarityThreshold())
+                                    .filterExpression("tenant_id == '" + tenantId + "'")
                                     .build()
                     );
 
@@ -205,6 +210,16 @@ public class SpringAiChatService {
                             System.currentTimeMillis() - start
                     );
                 })
+                .flatMap(response -> auditService.recordQuery(
+                        tenantContext,
+                        message,
+                        "vector-only",
+                        List.of(),
+                        response.promptTokens(),
+                        response.completionTokens(),
+                        response.totalTokens(),
+                        response.latencyMs()
+                ).thenReturn(response))
                 .onErrorResume(ex -> {
                     log.warn("Fallback triggered message='{}' reason={}",
                             message, ex.getMessage());
@@ -218,9 +233,12 @@ public class SpringAiChatService {
     // stream() — configurable retrieval strategy, no memory
     // ---------------------------------------------------------------
 
-    public Flux<String> stream(String message, String retrievalStrategy) {
+    public Flux<String> stream(String message, String retrievalStrategy,
+                               UUID tenantId, TenantContext tenantContext) {
+        long start = System.currentTimeMillis();
+
         return Mono.fromCallable(() -> {
-                    List<Document> relevantDocs = retrieve(message, retrievalStrategy);
+                    List<Document> relevantDocs = retrieve(message, retrievalStrategy, tenantId);
 
                     log.debug("Streaming retrieved {} chunks strategy='{}' query='{}'",
                             relevantDocs.size(), retrievalStrategy, message);
@@ -234,22 +252,29 @@ public class SpringAiChatService {
                         .stream()
                         .content()
                 )
+                .concatWith(auditService.recordStream(
+                        tenantContext,
+                        message,
+                        retrievalStrategy != null ? retrievalStrategy
+                                : retrievalProperties.getDefaultStrategy(),
+                        System.currentTimeMillis() - start
+                ).thenMany(Flux.empty()))
                 .onErrorResume(ex -> Flux.just(
                         "Service temporarily unavailable. Please try again shortly."
                 ));
     }
-
     // ---------------------------------------------------------------
     // query() — configurable retrieval strategy + configurable memory
     // stream() always stateless — no memory, no change needed
     // ---------------------------------------------------------------
 
     public Mono<QueryResponse> query(String message, String retrievalStrategy,
-                                     Boolean memoryEnabled, String conversationId) {
+                                     Boolean memoryEnabled, String conversationId,
+                                     UUID tenantId, TenantContext tenantContext) {
         long start = System.currentTimeMillis();
 
         return Mono.fromCallable(() -> {
-                    List<Document> relevantDocs = retrieve(message, retrievalStrategy);
+                    List<Document> relevantDocs = retrieve(message, retrievalStrategy, tenantId);
 
                     // CitedSource mapping — excerpt truncated for display,
                     // fullText preserved for RAGAS evaluation
@@ -265,8 +290,8 @@ public class SpringAiChatService {
                                     doc.getText().substring(0,
                                                     Math.min(200, doc.getText().length()))
                                             .trim()
-                                            .replaceAll("\\s+", " "),  // excerpt — display only
-                                    doc.getText()                       // fullText — complete chunk
+                                            .replaceAll("\\s+", " "),
+                                    doc.getText()
                             ))
                             .toList();
 
@@ -329,6 +354,18 @@ public class SpringAiChatService {
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .transform(CircuitBreakerOperator.of(circuitBreaker))
+                .flatMap(response -> auditService.recordQuery(
+                        tenantContext,
+                        message,
+                        response.retrievalStrategy(),
+                        response.sources().stream()
+                                .map(QueryResponse.CitedSource::fileName)
+                                .toList(),
+                        response.promptTokens(),
+                        response.completionTokens(),
+                        response.totalTokens(),
+                        response.latencyMs()
+                ).thenReturn(response))
                 .onErrorResume(ex -> Mono.just(new QueryResponse(
                         "Service temporarily unavailable. Please try again shortly.",
                         List.of(), 0.0, UUID.randomUUID()

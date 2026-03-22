@@ -3,6 +3,7 @@ package com.ai.spring_lens.service.strategy;
 import org.springframework.ai.document.Document;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Strategy interface for document retrieval in the RAG pipeline.
@@ -26,7 +27,9 @@ public interface RetrievalStrategy {
      *
      * @param query               natural language query from user
      * @param similarityThreshold minimum similarity score for vector results
+     * @param tenantId            tenant UUID for data isolation —
+     *                            only chunks belonging to this tenant returned
      * @return ordered list of relevant documents, most relevant first
      */
-    List<Document> retrieve(String query, double similarityThreshold);
+    List<Document> retrieve(String query, double similarityThreshold, UUID tenantId);
 }
