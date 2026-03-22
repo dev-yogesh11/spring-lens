@@ -40,3 +40,6 @@ out/
 .env
 setenv.sh
 docs
+docs/ragas_evaluation_phase-02/eval_vector_only.json
+docs/ragas_evaluation_phase-02/eval_hybrid.json
+docs/ragas_evaluation_phase-02/eval_hybrid_rerank.json

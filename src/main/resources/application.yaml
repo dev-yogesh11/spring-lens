@@ -3,12 +3,12 @@ spring:
     name: spring-lens
   ai:
     openai:
-      api-key: ${GROQ_AI_API_KEY}
+      api-key: ${OPENAI_API_KEY}
       groq-url: https://api.groq.com/openai/v1/chat/completions
-      base-url: https://api.groq.com/openai
+      base-url: https://api.openai.com
       chat:
         options:
-          model: llama-3.3-70b-versatile
+          model: gpt-4o-mini
       embedding:
         api-key: ${OPENAI_API_KEY}
         base-url: https://api.openai.com
@@ -31,6 +31,8 @@ spring:
     multipart:
       max-file-size: 50MB
       max-request-size: 50MB
+    codec:
+      max-in-memory-size: 10MB
 
   data:
     redis:
@@ -99,6 +101,15 @@ springlens:
     evaluate-path: /evaluate
     health-path: /health
     enabled: true
+
+  quality-dashboard:
+      default-days: 7
+      max-days: 90
+
+  regression-alert:
+    enabled: true
+    threshold-percent: 15
+    lookback-days: 7
 
 logging:
   level:
