@@ -49,6 +49,7 @@ public class SpringAiChatService {
     private final RetrievalProperties retrievalProperties;
     private final ChatMemoryProperties chatMemoryProperties;
     private final AuditService auditService;
+    private final ProviderRouterService providerRouter;
 
     public SpringAiChatService(ChatClient.Builder builder,
                                CircuitBreakerRegistry circuitBreakerRegistry,
@@ -56,7 +57,7 @@ public class SpringAiChatService {
                                IngestionProperties properties,
                                ChatMemoryRepository chatMemoryRepository,
                                Map<String, RetrievalStrategy> retrievalStrategies,
-                               RetrievalProperties retrievalProperties, ChatMemoryProperties chatMemoryProperties, AuditService auditService) {
+                               RetrievalProperties retrievalProperties, ChatMemoryProperties chatMemoryProperties, AuditService auditService, ProviderRouterService providerRouter) {
         this.vectorStore = vectorStore;
         this.properties = properties;
         this.retrievalStrategies = retrievalStrategies;
@@ -72,6 +73,7 @@ public class SpringAiChatService {
                 .circuitBreaker("groqClient");
         this.chatMemoryProperties = chatMemoryProperties;
         this.auditService = auditService;
+        this.providerRouter = providerRouter;
         log.info("ChatMemoryRepository implementation: {}",
                 chatMemoryRepository.getClass().getName());
         log.info("Available retrieval strategies: {}",
@@ -128,10 +130,6 @@ public class SpringAiChatService {
                 "Question: " + message;
     }
 
-    // ---------------------------------------------------------------
-    // chat() — pure vector baseline, conversation memory active
-    // Retrieval strategy: always vector-only (baseline comparison)
-    // ---------------------------------------------------------------
 
     // ---------------------------------------------------------------
     // chat() — configurable retrieval strategy + configurable memory
@@ -143,7 +141,7 @@ public class SpringAiChatService {
         long start = System.currentTimeMillis();
 
         return Mono.fromCallable(() -> {
-                    // chat() always uses vector-only — preserved as Phase 1 baseline
+                    // ONLY blocking work here
                     List<Document> relevantDocs = vectorStore.similaritySearch(
                             SearchRequest.builder()
                                     .query(message)
@@ -155,59 +153,35 @@ public class SpringAiChatService {
 
                     String augmentedMessage = buildAugmentedMessage(message, relevantDocs);
 
-                    log.info("RAG retrieved {} chunks strategy=vector-only query='{}'",
-                            relevantDocs.size(), message);
-                    log.debug("Augmented prompt sent to LLM:\n{}", augmentedMessage);
-
-                    // Resolve memory: request param overrides config default
                     boolean useMemory = memoryEnabled != null
                             ? memoryEnabled
                             : chatMemoryProperties.isEnabledByDefault();
 
-                    log.debug("chat() memory enabled={} conversationId='{}'",
-                            useMemory, conversationId);
-
-                    var prompt = chatClient.prompt().user(augmentedMessage);
-
-                    if (useMemory) {
-                        prompt = prompt
-                                .advisors(MessageChatMemoryAdvisor
-                                        .builder(chatMemory).build())
-                                .advisors(advisor -> advisor
-                                        .param(ChatMemory.CONVERSATION_ID,
-                                                conversationId != null
-                                                        ? conversationId : "default"));
-                    }
-
-                    return prompt.call().chatResponse();
+                    return new Object[]{augmentedMessage, useMemory};
                 })
-                .subscribeOn(Schedulers.boundedElastic())
-                .transform(CircuitBreakerOperator.of(circuitBreaker))
-                .doOnSuccess(response -> {
-                    if (response == null) return;
-                    var metadata = response.getMetadata();
-                    var usage = metadata != null ? metadata.getUsage() : null;
-                    var text = response.getResult() != null
-                            ? response.getResult().getOutput().getText()
-                            : "no content";
-                    log.debug(
-                            "LLM response: model={} promptTokens={} completionTokens={} response=\n{}",
-                            metadata != null ? metadata.getModel() : "unknown",
-                            usage != null ? usage.getPromptTokens() : 0,
-                            usage != null ? usage.getCompletionTokens() : 0,
-                            text);
+                .subscribeOn(Schedulers.boundedElastic()) // blocking isolated
+                .flatMap(data -> {
+                    String augmentedMessage = (String) data[0];
+                    boolean useMemory = (boolean) data[1];
+
+                    // PURE reactive from here
+                    return providerRouter.executeChat(
+                            tenantContext,
+                            augmentedMessage,
+                            useMemory,
+                            conversationId
+                    );
                 })
-                .map(response -> {
-                    var result = response.getResult();
-                    var metadata = response.getMetadata();
-                    var usage = metadata != null ? metadata.getUsage() : null;
+                .map(res -> {
+                    long latency = System.currentTimeMillis() - start;
+
                     return new ChatResponse(
-                            result != null ? result.getOutput().getText() : "",
-                            metadata != null ? metadata.getModel() : "unknown",
-                            usage != null ? usage.getPromptTokens() : 0,
-                            usage != null ? usage.getCompletionTokens() : 0,
-                            usage != null ? usage.getTotalTokens() : 0,
-                            System.currentTimeMillis() - start
+                            res.content(),
+                            res.model(),
+                            res.promptTokens(),
+                            res.completionTokens(),
+                            res.totalTokens(),
+                            latency
                     );
                 })
                 .flatMap(response -> auditService.recordQuery(
@@ -219,10 +193,10 @@ public class SpringAiChatService {
                         response.completionTokens(),
                         response.totalTokens(),
                         response.latencyMs()
-                ).thenReturn(response))
+                ).thenReturn(response)
+                )
                 .onErrorResume(ex -> {
-                    log.warn("Fallback triggered message='{}' reason={}",
-                            message, ex.getMessage());
+                    log.warn("Fallback triggered message='{}' reason={}", message, ex.getMessage());
                     return Mono.just(new ChatResponse(
                             "Service temporarily unavailable. Please try again shortly.",
                             "fallback", 0, 0, 0, 0L
@@ -235,9 +209,11 @@ public class SpringAiChatService {
 
     public Flux<String> stream(String message, String retrievalStrategy,
                                UUID tenantId, TenantContext tenantContext) {
+
         long start = System.currentTimeMillis();
 
         return Mono.fromCallable(() -> {
+                    // ONLY blocking work
                     List<Document> relevantDocs = retrieve(message, retrievalStrategy, tenantId);
 
                     log.debug("Streaming retrieved {} chunks strategy='{}' query='{}'",
@@ -246,19 +222,23 @@ public class SpringAiChatService {
                     return buildAugmentedMessage(message, relevantDocs);
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .transform(CircuitBreakerOperator.of(circuitBreaker))
-                .flatMapMany(augmentedMessage -> chatClient.prompt()
-                        .user(augmentedMessage)
-                        .stream()
-                        .content()
+                .flatMapMany(augmentedMessage ->
+                        //  PURE reactive — use router
+                        providerRouter.executeStream(
+                                tenantContext,
+                                augmentedMessage
+                        )
                 )
-                .concatWith(auditService.recordStream(
-                        tenantContext,
-                        message,
-                        retrievalStrategy != null ? retrievalStrategy
-                                : retrievalProperties.getDefaultStrategy(),
-                        System.currentTimeMillis() - start
-                ).thenMany(Flux.empty()))
+                .concatWith(
+                        auditService.recordStream(
+                                tenantContext,
+                                message,
+                                retrievalStrategy != null
+                                        ? retrievalStrategy
+                                        : retrievalProperties.getDefaultStrategy(),
+                                System.currentTimeMillis() - start
+                        ).thenMany(Flux.empty())
+                )
                 .onErrorResume(ex -> Flux.just(
                         "Service temporarily unavailable. Please try again shortly."
                 ));
@@ -271,13 +251,12 @@ public class SpringAiChatService {
     public Mono<QueryResponse> query(String message, String retrievalStrategy,
                                      Boolean memoryEnabled, String conversationId,
                                      UUID tenantId, TenantContext tenantContext) {
+
         long start = System.currentTimeMillis();
 
         return Mono.fromCallable(() -> {
                     List<Document> relevantDocs = retrieve(message, retrievalStrategy, tenantId);
 
-                    // CitedSource mapping — excerpt truncated for display,
-                    // fullText preserved for RAGAS evaluation
                     List<QueryResponse.CitedSource> sources = relevantDocs.stream()
                             .map(doc -> new QueryResponse.CitedSource(
                                     (String) doc.getMetadata().getOrDefault(
@@ -302,58 +281,43 @@ public class SpringAiChatService {
                             ? retrievalStrategy
                             : retrievalProperties.getDefaultStrategy();
 
-                    // Resolve memory: request param overrides config default
                     boolean useMemory = memoryEnabled != null
                             ? memoryEnabled
                             : chatMemoryProperties.isEnabledByDefault();
 
-                    log.debug("Query retrieved {} chunks strategy='{}' memory={} query='{}'",
-                            relevantDocs.size(), resolvedStrategy, useMemory, message);
-
-                    var prompt = chatClient.prompt().user(augmentedMessage);
-
-                    if (useMemory) {
-                        prompt = prompt
-                                .advisors(MessageChatMemoryAdvisor
-                                        .builder(chatMemory).build())
-                                .advisors(advisor -> advisor
-                                        .param(ChatMemory.CONVERSATION_ID,
-                                                conversationId != null
-                                                        ? conversationId : "default"));
-                    }
-
-                    var chatResponse = prompt.call().chatResponse();
-
-                    var metadata = chatResponse != null
-                            ? chatResponse.getMetadata() : null;
-                    var usage = metadata != null ? metadata.getUsage() : null;
-                    String answer = chatResponse != null
-                            && chatResponse.getResult() != null
-                            ? chatResponse.getResult().getOutput().getText()
-                            : "";
-
-                    log.debug(
-                            "Query LLM response: strategy='{}' memory={} " +
-                                    "promptTokens={} completionTokens={} latencyMs={}",
-                            resolvedStrategy, useMemory,
-                            usage != null ? usage.getPromptTokens() : 0,
-                            usage != null ? usage.getCompletionTokens() : 0,
-                            System.currentTimeMillis() - start);
-
-                    return new QueryResponse(
-                            answer,
-                            sources,
-                            relevantDocs.isEmpty() ? 0.0 : 0.8,
-                            UUID.randomUUID(),
-                            resolvedStrategy,
-                            usage != null ? usage.getPromptTokens() : 0,
-                            usage != null ? usage.getCompletionTokens() : 0,
-                            usage != null ? usage.getTotalTokens() : 0,
-                            System.currentTimeMillis() - start
-                    );
+                    return new Object[]{augmentedMessage, sources, resolvedStrategy, useMemory};
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .transform(CircuitBreakerOperator.of(circuitBreaker))
+                .flatMap(data -> {
+
+                    String augmentedMessage = (String) data[0];
+                    List<QueryResponse.CitedSource> sources =
+                            (List<QueryResponse.CitedSource>) data[1];
+                    String resolvedStrategy = (String) data[2];
+                    boolean useMemory = (boolean) data[3];
+
+                    // Reactive LLM call via router
+                    return providerRouter.executeChat(
+                            tenantContext,
+                            augmentedMessage,
+                            useMemory,
+                            conversationId
+                    ).map(res -> {
+                        long latency = System.currentTimeMillis() - start;
+
+                        return new QueryResponse(
+                                res.content(),
+                                sources,
+                                sources.isEmpty() ? 0.0 : 0.8,
+                                UUID.randomUUID(),
+                                resolvedStrategy,
+                                res.promptTokens(),
+                                res.completionTokens(),
+                                res.totalTokens(),
+                                latency
+                        );
+                    });
+                })
                 .flatMap(response -> auditService.recordQuery(
                         tenantContext,
                         message,

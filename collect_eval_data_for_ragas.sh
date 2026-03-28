@@ -1,6 +1,30 @@
 #!/bin/bash
 SPRINGLENS_URL="http://localhost:8087/api/v1/ai/chat/query"
 
+# ─────────────────────────────────────────────
+# JWT TOKEN — set via env var or hardcode here
+# Usage:
+#   export JWT_TOKEN="eyJhbGci..."
+#   ./collect_eval_data_for_ragas.sh
+# Or inline:
+#   JWT_TOKEN="eyJhbGci..." ./collect_eval_data_for_ragas.sh
+# ─────────────────────────────────────────────
+JWT_TOKEN="eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJ1c2VyQHNwcmluZ2xlbnMuY29tIiwidXNlcklkIjoiYzAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxIiwidGVuYW50SWQiOiJhMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJyb2xlIjoiVVNFUiIsImlzcyI6InNwcmluZ2xlbnMiLCJpYXQiOjE3NzQ2OTI0NDQsImV4cCI6MTc3NDY5OTY0NH0.K0ah4ZijzxyT-GYXfQzfWKEI9fSt9Q2yMpbF9pGgSHDDRdA4yjtmohxg0yL9CQ1hFWi9aMDmRaV3UJNqUZw95A"
+if [ -z "$JWT_TOKEN" ]; then
+    echo "ERROR: JWT_TOKEN is not set."
+    echo ""
+    echo "Please export it before running:"
+    echo "  export JWT_TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\""
+    echo "  ./collect_eval_data_for_ragas.sh"
+    echo ""
+    echo "Or pass it inline:"
+    echo "  JWT_TOKEN=\"eyJhbGci...\" ./collect_eval_data_for_ragas.sh"
+    exit 1
+fi
+
+echo "JWT_TOKEN is set — proceeding."
+echo ""
+
 QUESTIONS=(
   "What are the specific ownership or control thresholds defined for identifying a Beneficial Owner when the customer of an NBFC is a company, a partnership firm, or an unincorporated association?"
   "Under the RBI KYC Directions 2025, what is the prescribed periodicity for NBFCs to carry out periodic updation of KYC for high, medium, and low-risk customers?"
@@ -73,31 +97,60 @@ collect_for_strategy() {
             --arg strategy "$STRATEGY" \
             '{"message": $message, "retrievalStrategy": $strategy, "memoryEnabled": false}' > "$REQUEST_FILE"
 
-        # Write response directly to temp file — fixes apostrophe bug
+        # Make the curl call with Authorization header
         local RESPONSE_FILE=$(mktemp /tmp/sl_resp_XXXXXX.json)
-        curl -s -X POST "$SPRINGLENS_URL" \
+        HTTP_STATUS=$(curl -s -o "$RESPONSE_FILE" -w "%{http_code}" \
+            -X POST "$SPRINGLENS_URL" \
             -H "Content-Type: application/json" \
-            -d @"$REQUEST_FILE" > "$RESPONSE_FILE"
+            -H "Authorization: Bearer $JWT_TOKEN" \
+            -d @"$REQUEST_FILE")
         rm -f "$REQUEST_FILE"
 
-        # Validate response
-        if ! jq empty "$RESPONSE_FILE" 2>/dev/null; then
-            echo "    WARNING: Invalid response for Q$Q_NUM"
+        # ── Handle auth / HTTP errors ──────────────────────────────────────
+        if [ "$HTTP_STATUS" -eq 401 ]; then
+            echo "    ERROR: 401 Unauthorized on Q$Q_NUM — JWT token is invalid or expired."
+            echo "    Please refresh your JWT_TOKEN and re-run the script."
+            rm -f "$RESPONSE_FILE" "$PAIRS_FILE"
+            exit 1
+        elif [ "$HTTP_STATUS" -eq 403 ]; then
+            echo "    ERROR: 403 Forbidden on Q$Q_NUM — token lacks required permissions."
+            rm -f "$RESPONSE_FILE" "$PAIRS_FILE"
+            exit 1
+        elif [ "$HTTP_STATUS" -ge 500 ]; then
+            echo "    WARNING: HTTP $HTTP_STATUS on Q$Q_NUM — server error, skipping question."
+            echo '{"answer":"No answer retrieved","sources":[]}' > "$RESPONSE_FILE"
+        elif [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "    WARNING: Unexpected HTTP $HTTP_STATUS on Q$Q_NUM — skipping question."
             echo '{"answer":"No answer retrieved","sources":[]}' > "$RESPONSE_FILE"
         fi
 
-        # Build pair file directly from response file — no shell variables for content
+        # Validate JSON response
+        if ! jq empty "$RESPONSE_FILE" 2>/dev/null; then
+            echo "    WARNING: Invalid JSON response for Q$Q_NUM"
+            echo '{"answer":"No answer retrieved","sources":[]}' > "$RESPONSE_FILE"
+        fi
+
+        # Build contexts into its own temp file — safe fallback to []
+        local CONTEXTS_FILE=$(mktemp /tmp/sl_ctx_XXXXXX.json)
+        jq '[.sources[]?.fullText // ""] | map(select(. != ""))' \
+            "$RESPONSE_FILE" > "$CONTEXTS_FILE" 2>/dev/null
+        if ! jq empty "$CONTEXTS_FILE" 2>/dev/null; then
+            echo "[]" > "$CONTEXTS_FILE"
+        fi
+
+        # Build pair file — all content via --slurpfile or --arg, never shell expansion
         local PAIR_FILE=$(mktemp /tmp/sl_pair_XXXXXX.json)
         jq -n \
             --arg question "$QUESTION" \
             --arg ground_truth "$GROUND_TRUTH" \
             --arg answer "$(jq -r '.answer // "No answer retrieved"' "$RESPONSE_FILE")" \
-            --argjson contexts "$(jq '[.sources[]?.fullText // ""] | map(select(. != ""))' "$RESPONSE_FILE")" \
-            '{question: $question, ground_truth: $ground_truth, answer: $answer, contexts: $contexts}' > "$PAIR_FILE"
+            --slurpfile contexts "$CONTEXTS_FILE" \
+            '{question: $question, ground_truth: $ground_truth, answer: $answer, contexts: $contexts[0]}' \
+            > "$PAIR_FILE"
 
-        rm -f "$RESPONSE_FILE"
+        rm -f "$RESPONSE_FILE" "$CONTEXTS_FILE"
 
-        # Append pair using --slurpfile — safe against all special characters
+        # Append pair using --slurpfile
         jq --slurpfile pair "$PAIR_FILE" '. + $pair' "$PAIRS_FILE" > "${PAIRS_FILE}.tmp"
         mv "${PAIRS_FILE}.tmp" "$PAIRS_FILE"
         rm -f "$PAIR_FILE"
@@ -106,7 +159,7 @@ collect_for_strategy() {
         sleep 1
     done
 
-    # Assemble final output using --slurpfile — fixes apostrophe bug in assembly
+    # Assemble final output
     jq -n \
         --arg strategy "$STRATEGY" \
         --slurpfile pairs "$PAIRS_FILE" \

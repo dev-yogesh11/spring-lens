@@ -20,9 +20,9 @@ public class GroqClient {
 
     public GroqClient(
             WebClient.Builder webClientBuilder,
-            @Value("${spring.ai.openai.groq-url}") String apiUrl,
-            @Value("${spring.ai.openai.chat.options.model}") String model,
-            @Value("${spring.ai.openai.api-key}") String apiKey
+            @Value("${springlens.llm.groq.base-url}") String apiUrl,
+            @Value("${springlens.llm.groq.model}") String model,
+            @Value("${springlens.llm.groq.api-key}") String apiKey
     ) {
         this.model = model;
         this.webClient = webClientBuilder
