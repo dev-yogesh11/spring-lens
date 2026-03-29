@@ -4,6 +4,12 @@ build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
+.gradle/
+.idea/
+logs/
+gradle
+test-docs/
+releases/
 
 ### STS ###
 .apt_generated
@@ -40,6 +46,13 @@ out/
 .env
 setenv.sh
 docs
-docs/ragas_evaluation_phase-02/eval_vector_only.json
-docs/ragas_evaluation_phase-02/eval_hybrid.json
-docs/ragas_evaluation_phase-02/eval_hybrid_rerank.json
+
+# RAGAS service
+springlens-ragas-evaluator/venv/
+springlens-ragas-evaluator/__pycache__/
+springlens-ragas-evaluator/*.pyc
+springlens-ragas-evaluator/.env
+springlens-ragas-evaluator/.idea/
+# Process files
+app.pid
+

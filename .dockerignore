@@ -1,0 +1,32 @@
+# Java build output
+build/
+.gradle/
+
+# Python
+springlens-ragas-evaluator/venv/
+springlens-ragas-evaluator/__pycache__/
+springlens-ragas-evaluator/*.pyc
+springlens-ragas-evaluator/.env
+
+# IDE
+.idea/
+springlens-ragas-evaluator/.idea/
+
+# Secrets
+.env
+setenv.sh
+
+# Logs
+logs/
+
+# Git
+.git/
+.gitignore
+
+# Docs / test data
+docs/
+test-docs/
+*.md
+
+# Eval output files
+eval_*.json

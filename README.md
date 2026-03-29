@@ -2,7 +2,7 @@
 
 > **Java-native AI knowledge platform.** Turn any document corpus into a queryable knowledge base with cited answers, retrieval quality measurement, and autonomous agents.
 
-Built with **Java 21 · Spring Boot 4.0.3 · Spring AI 2.0 · WebFlux**
+**Java 21 · Spring Boot 4.0.3 · Spring AI 2.0 · WebFlux · Docker**
 
 ---
 
@@ -11,14 +11,14 @@ Built with **Java 21 · Spring Boot 4.0.3 · Spring AI 2.0 · WebFlux**
 Point SpringLens at any document corpus. Ask questions in natural language. Get cited, grounded answers — with the source document and page number for every claim.
 
 ```
-User: "What is the KYC updation frequency for high-risk customers?"
+User:        "What is the KYC updation frequency for high-risk customers?"
 
-SpringLens: "At least once every two years from the date of account opening
-             or last KYC updation."
-             → Source: rbi-nbfc-kyc-guidelines.pdf, Page 41
+SpringLens:  "At least once every two years from the date of account opening
+              or last KYC updation."
+              → Source: rbi-nbfc-kyc-guidelines.pdf, Page 41
 ```
 
-The system supports three retrieval strategies, switchable per request at runtime — vector-only, hybrid (vector + full-text search), and hybrid with Cohere reranking. Quality is measured with RAGAS metrics across all strategies so you always know which one performs best on your corpus.
+Three retrieval strategies — switchable per request at runtime, no restart required. Quality measured with RAGAS metrics so you always know which strategy performs best on your corpus.
 
 ---
 
@@ -30,11 +30,160 @@ Most AI knowledge platforms are Python-first and built for demos. SpringLens is 
 
 ---
 
-## Demo Data
+## Quick Start
 
-Built and tested on RBI regulatory documents (KYC guidelines, credit card regulations, lending policies, priority sector lending) — 12 PDFs, 795 chunks, 20 golden Q&A pairs for evaluation.
+> **Everything runs in Docker. No Java, no Python, no local setup required.**
 
-**Domain-agnostic by design.** Point it at engineering runbooks, legal contracts, medical records, product specifications — the architecture is identical.
+### Prerequisites
+
+You need the following before starting:
+
+| Requirement                                                       | Notes                           |
+|-------------------------------------------------------------------|---------------------------------|
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Version 24+ recommended         |
+| [Groq API key](https://console.groq.com)                          | Free tier works — primary LLM   |
+| [OpenAI API key](https://platform.openai.com)                     | For embeddings + LLM fallback   |
+| [Cohere API key](https://cohere.com)                              | Free tier works — for reranking |
+
+---
+
+### Step 1 — Clone the repository
+
+```bash
+git clone https://github.com/yogeshkale/spring-lens.git
+cd spring-lens
+```
+
+---
+
+### Step 2 — Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and fill in your API keys:
+
+```env
+# ── LLM Providers ──────────────────────────────────────────────
+GROQ_AI_API_KEY=gsk_...          # https://console.groq.com
+OPENAI_API_KEY=sk-...            # https://platform.openai.com
+COHERE_API_KEY=...               # https://cohere.com
+
+# ── Database ────────────────────────────────────────────────────
+DB_USERNAME=springlens
+DB_PASSWORD=springlens
+
+# ── Redis ───────────────────────────────────────────────────────
+REDIS_PASSWORD=springlens
+
+# ── JWT Secret (any strong random string) ───────────────────────
+JWT_SECRET=change-this-to-a-strong-secret
+```
+
+> ⚠️ Never commit `.env` — it is already in `.gitignore`.
+
+---
+
+### Step 3 — Start the full stack
+
+```bash
+docker compose up --build
+```
+
+This builds and starts all 4 services:
+
+```
+springlens-postgres  → PostgreSQL 16 + pgvector   (port 5432)
+springlens-redis     → Redis 7.4                  (port 6380)
+springlens-ragas     → Python RAGAS evaluator      (port 8088)
+springlens-app       → Spring Boot API             (port 8087)
+```
+
+> ⏳ First build takes 5–10 minutes (Gradle downloads dependencies). Subsequent starts are fast.
+
+Wait for this line to confirm the app is ready:
+
+```
+springlens-app | Netty started on port 8087
+```
+
+---
+
+### Step 4 — Verify everything is running
+
+```bash
+curl http://localhost:8087/actuator/health
+# → {"status":"UP"}
+
+curl http://localhost:8088/health
+# → {"status":"ok"}
+```
+
+---
+
+### Step 5 — Get an auth token
+
+```bash
+# Admin login
+curl -X POST http://localhost:8087/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@springlens.com", "password": "Admin@123"}'
+
+# → {"token": "eyJ...", "expires_in": 7200}
+
+# Save the token
+export TOKEN=eyJ...
+```
+
+---
+
+### Step 6 — Ingest a document
+
+```bash
+curl -X POST http://localhost:8087/api/v1/documents/ingest \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@your-document.pdf"
+
+# → {"filename": "your-document.pdf", "chunks": 179, "status": "SUCCESS"}
+```
+
+---
+
+### Step 7 — Ask a question
+
+```bash
+curl -X POST http://localhost:8087/api/v1/ai/chat/query \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Summarise the key compliance requirements",
+    "retrievalStrategy": "hybrid-rerank",
+    "conversationId": "session-001",
+    "memoryEnabled": true
+  }'
+```
+
+---
+
+## Docker — Day to Day Commands
+
+```bash
+# Start everything
+docker compose up -d
+
+# Stop everything (data is preserved)
+docker compose down
+
+# View logs
+docker compose logs -f app
+
+# Rebuild after code changes
+docker compose up --build
+
+# Full reset (wipes all data)
+docker compose down -v && docker compose up --build
+```
 
 ---
 
@@ -90,8 +239,8 @@ POST /api/v1/ai/chat/query
 {
   "message": "What is the KYC policy for NBFCs?",
   "retrievalStrategy": "hybrid-rerank",
-   "conversationId": "test-conv-001",
-    "memoryEnabled": true 
+  "conversationId": "test-conv-001",
+  "memoryEnabled": true
 }
 ```
 
@@ -131,7 +280,7 @@ Groq → OpenAI → Ollama (local)
 Reactive fallback chain — if Groq fails (timeout, rate limit, error), OpenAI takes over automatically. If OpenAI fails, Ollama (local) handles the request. Fully reactive — no `.block()`, no thread starvation.
 
 ### Enterprise Controls
-- **JWT Authentication** — HS512, 1-hour expiry, role-based (USER / ADMIN)
+- **JWT Authentication** — HS512, 2-hour expiry, role-based (USER / ADMIN)
 - **Multi-tenancy** — every document, query, and audit row is tenant-scoped
 - **Budget Enforcement** — 6 checks per request: user/tenant × daily requests / daily tokens / monthly tokens. Returns `429` for rate limits, `402` for budget exhaustion
 - **Audit Logging** — every query writes to `audit_events`: tokens, cost (USD), latency, strategy, sources cited, tenant/user IDs
@@ -160,116 +309,85 @@ Reactive fallback chain — if Groq fails (timeout, rate limit, error), OpenAI t
 | LLM Providers       | Groq (primary), OpenAI (fallback), Ollama (local fallback) |
 | Embeddings          | OpenAI `text-embedding-3-small`                            |
 | Reranking           | Cohere `rerank-v4.0-pro`                                   |
-| Evaluation          | RAGAS 0.2.x (Python FastAPI service)                       |
+| Evaluation          | RAGAS (Python FastAPI service)                             |
 | Observability       | Spring Actuator, 28 endpoints                              |
-| Build               | Gradle                                                     |
+| Build               | Gradle 9.3.1 (wrapper)                                     |
+| Containerization    | Docker + Docker Compose                                    |
 
 ---
 
 ## API Reference
 
 ### Authentication
-#### Admin Login
+
 ```bash
+# Admin login
 POST /api/v1/auth/login
 {"email": "admin@springlens.com", "password": "Admin@123"}
-→ {"token": "...", "expires_in": 3600}
-```
-#### User Login
-```bash
+→ {"token": "eyJ...", "expires_in": 7200}
+
+# User login
 POST /api/v1/auth/login
 {"email": "user@springlens.com", "password": "User@123"}
-→ {"token": "...", "expires_in": 3600}
+→ {"token": "eyJ...", "expires_in": 7200}
 ```
 
 ### Document Ingestion
+
 ```bash
 POST /api/v1/documents/ingest
+Authorization: Bearer $TOKEN
 Content-Type: multipart/form-data
 file=@document.pdf
 → {"filename": "...", "chunks": 179, "status": "SUCCESS"}
 ```
 
-### RAG Query 
-### Streaming Query(stateful, Redis memory)
+### RAG Query — Stateful (Redis memory)
+
 ```bash
 POST /api/v1/ai/chat/query
-{"message": "...", "conversationId": "session-123", "memoryEnabled": true}
-→ {"answer": "...", "sources": [...], "promptTokens": 1566,
-   "completionTokens": 33, "latencyMs": 2452}
+Authorization: Bearer $TOKEN
+{
+  "message": "...",
+  "retrievalStrategy": "hybrid-rerank",
+  "conversationId": "session-123",
+  "memoryEnabled": true
+}
+→ {"answer": "...", "sources": [...], "promptTokens": 1566, "completionTokens": 33, "latencyMs": 2452}
 ```
 
-### Streaming Query(stateless)
+### Streaming Query — Stateless (SSE)
+
 ```bash
 GET /api/v1/ai/chat/stream?message=...&retrievalStrategy=hybrid
+Authorization: Bearer $TOKEN
 → SSE stream: data: token\n\ndata: by\n\ndata: token\n\n
 ```
 
-### Conversational Chat (stateful, Redis memory)
+### Conversational Chat — Stateful (Redis memory)
+
 ```bash
 POST /api/v1/ai/chat
+Authorization: Bearer $TOKEN
 {"message": "...", "conversationId": "session-123", "memoryEnabled": true}
 → {"response": "...", "model": "...", "promptTokens": 3957}
 ```
 
 ### RAGAS Evaluation (Admin)
+
 ```bash
 POST /api/v1/admin/evaluate
+Authorization: Bearer $TOKEN
 {"retrievalStrategy": "hybrid-rerank", "pairs": [...]}
-→ {"scores": {"faithfulness": 0.87, "answer_relevancy": 0.87,
-              "context_precision": 0.97, "context_recall": 0.89}}
+→ {"scores": {"faithfulness": 0.87, "answer_relevancy": 0.87, "context_precision": 0.97, "context_recall": 0.89}}
 ```
 
 ### Quality Dashboard (Admin)
+
 ```bash
 GET /api/v1/admin/quality?days=7
-→ {"strategies": [{"retrievalStrategy": "hybrid-rerank",
-                   "avgFaithfulness": 0.87, "runCount": 9, ...}]}
-```
-
----
-
-## Quick Start
-
-### Prerequisites
-- Java 21+
-- Docker (for PostgreSQL + Redis)
-- Groq API key (free tier works — [console.groq.com](https://console.groq.com))
-- OpenAI API key (for embeddings + fallback LLM)
-- Cohere API key (for reranking — [cohere.com](https://cohere.com))
-
-### 1. Start Infrastructure
-```bash
-docker-compose up -d
-# Starts PostgreSQL 16 with pgvector + Redis 7.4
-```
-
-### 2. Configure Environment
-```bash
-cp setenv.example.sh setenv.sh
-# Edit setenv.sh — add your API keys
-source setenv.sh
-```
-
-### 3. Run SpringLens
-```bash
-./startapp.sh
-# Waits for: "Netty started on port 8087"
-```
-
-### 4. Ingest a Document
-```bash
-curl -X POST http://localhost:8087/api/v1/documents/ingest \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@your-document.pdf"
-```
-
-### 5. Ask a Question
-```bash
-curl -X POST http://localhost:8087/api/v1/ai/chat/query \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Summarise the key compliance requirements", "retrievalStrategy": "hybrid-rerank"}'
+Authorization: Bearer $TOKEN
+→ {"strategies": [{"retrievalStrategy": "hybrid-rerank", "avgFaithfulness": 0.87, "runCount": 9, ...}]}
 ```
 
 ---
@@ -278,51 +396,56 @@ curl -X POST http://localhost:8087/api/v1/ai/chat/query \
 
 ```
 spring-lens/
+├── Dockerfile                            ← Spring Boot container image
+├── docker-compose.yaml                   ← Full stack orchestration
+├── .dockerignore                         ← Docker build context exclusions
+├── .env.example                          ← Environment variable template (safe to commit)
+├── .env                                  ← Your secrets (never commit — in .gitignore)
+├── build.gradle                          ← Gradle build config
+├── gradlew                               ← Gradle wrapper (Gradle 9.3.1)
 ├── src/main/java/com/ai/spring_lens/
-│   ├── client/                  # LLM provider clients (Groq, OpenAI, Ollama)
-│   ├── config/                  # All configuration — LLM, budget, RAGAS, retrieval
-│   ├── controller/              # REST controllers — chat, documents, admin, auth
-│   ├── model/                   # DTOs — QueryResponse, ChatResponse, RagasEvaluation
-│   ├── repository/              # JDBC repositories — audit, budget, hybrid search, RAGAS
-│   ├── security/                # JWT filter, TenantContext, authentication
-│   └── service/                 # Core services
-│       ├── SpringAiChatService  # RAG pipeline orchestrator
-│       ├── ProviderRouterService# Multi-provider fallback chain
-│       ├── BudgetEnforcementService # 6-check budget enforcement
-│       ├── RagasEvaluationService   # RAGAS pipeline integration
-│       ├── RagasRegressionAlertService # Historical regression detection
-│       └── strategy/            # Retrieval strategy implementations
+│   ├── client/                           # LLM provider clients (Groq, OpenAI, Ollama)
+│   ├── config/                           # All configuration — LLM, budget, RAGAS, retrieval
+│   ├── controller/                       # REST controllers — chat, documents, admin, auth
+│   ├── model/                            # DTOs — QueryResponse, ChatResponse, RagasEvaluation
+│   ├── repository/                       # JDBC repositories — audit, budget, hybrid search, RAGAS
+│   ├── security/                         # JWT filter, TenantContext, authentication
+│   └── service/
+│       ├── SpringAiChatService           # RAG pipeline orchestrator
+│       ├── ProviderRouterService         # Multi-provider fallback chain
+│       ├── BudgetEnforcementService      # 6-check budget enforcement
+│       ├── RagasEvaluationService        # RAGAS pipeline integration
+│       ├── RagasRegressionAlertService   # Historical regression detection
+│       └── strategy/                     # Retrieval strategy implementations
 │           ├── VectorOnlyRetrievalStrategy
 │           ├── HybridRetrievalStrategy
 │           └── HybridWithRerankRetrievalStrategy
 ├── src/main/resources/
-│   ├── application.yaml         # All configuration — externalised
-│   └── db/migration/            # Flyway migrations (V1 baseline, V2 hybrid search)
-├── springlens-ragas-evaluator/  # Python FastAPI evaluation service
-│   ├── main.py
-│   └── requirements.txt
-├── setenv.example.sh            # Environment variable template
-├── startapp.sh                  # Application startup script
-└── docker-compose.yml           # PostgreSQL + Redis
+│   ├── application.yaml                  # All config — fully externalised via env vars
+│   └── db/migration/                     # Flyway migrations (V1–V6)
+└── springlens-ragas-evaluator/           ← Python RAGAS evaluation microservice
+    ├── Dockerfile                        ← RAGAS container image
+    ├── main.py                           ← FastAPI app
+    └── requirements.txt
 ```
 
 ---
 
 ## Roadmap
 
-| Phase                          | Status      | Features                                                                                                                                     |
-|--------------------------------|-------------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| Phase 1 — Foundation           | Complete    | LLM integration, PDF ingestion, basic RAG, streaming, Spring AI                                                                              |
-| Phase 2 — Quality + Enterprise | Complete    | Hybrid search, Cohere reranking, RAGAS evaluation, JWT auth, multi-tenancy, budget enforcement, multi-provider fallback, conversation memory |
-| Phase 3 — Agents               | In Progress | MCP protocol, autonomous agents, tool calling                                                                                                |
-| Phase 4 — Multi-Agent          | Planned     | Orchestrator + Search + Analysis + Action agents                                                                                             |
-| Phase 5 — MLOps                | Planned     | CI/CD quality gates, Kubernetes, fine-tuning experiment                                                                                      |
+| Phase                          | Status         | Features                                                                                                                                     |
+|--------------------------------|----------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| Phase 1 — Foundation           | ✅ Complete     | LLM integration, PDF ingestion, basic RAG, streaming, Spring AI                                                                              |
+| Phase 2 — Quality + Enterprise | ✅ Complete     | Hybrid search, Cohere reranking, RAGAS evaluation, JWT auth, multi-tenancy, budget enforcement, multi-provider fallback, conversation memory |
+| Phase 3 — Agents               | 🔄 In Progress | MCP protocol, autonomous agents, tool calling                                                                                                |
+| Phase 4 — Multi-Agent          | 📋 Planned     | Orchestrator + Search + Analysis + Action agents                                                                                             |
+| Phase 5 — MLOps                | 📋 Planned     | CI/CD quality gates, Kubernetes, fine-tuning experiment                                                                                      |
 
 ---
 
 ## Key Engineering Decisions
 
-**Spring AI over LangChain4j** — Native Spring Boot auto-configuration, Advisors API for composable RAG pipelines, built-in Micrometer observability. Full write-up in [`framework-choice.md`](docs/framework-choice.md).
+**Spring AI over LangChain4j** — Native Spring Boot auto-configuration, Advisors API for composable RAG pipelines, built-in Micrometer observability. Full write-up in [`docs/framework-choice.md`](docs/framework-choice.md).
 
 **WebFlux throughout** — Non-blocking reactive stack end-to-end. No `.block()` anywhere in the request path. Blocking operations (JDBC, vector search) isolated to `Schedulers.boundedElastic()`.
 
@@ -332,9 +455,20 @@ spring-lens/
 
 **Retrieval Strategy as a Pattern** — `Map<String, RetrievalStrategy>` auto-injected by Spring. Adding a new strategy = one new `@Component`. Zero changes to service layer. Runtime switchable without restart.
 
+**Docker-first deployment** — Full stack (PostgreSQL + pgvector, Redis, RAGAS Python service, Spring Boot) orchestrated via Docker Compose. Single `docker compose up --build` brings everything up from source. No local Java or Python install required to run.
+
 ---
 
-## LEARNINGS.md
+## Troubleshooting
+
+| Problem                   | Fix                                                                       |
+|---------------------------|---------------------------------------------------------------------------|
+| App not starting          | Check `docker compose logs app` — usually a missing env var               |
+| DB connection error       | Ensure `SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/springlens` |
+| Redis connection error    | Ensure `SPRING_DATA_REDIS_HOST=redis` and `PORT=6379`                     |
+| RAGAS healthcheck failing | Check `docker compose logs ragas` — ensure `PORT=8088` is set             |
+| Port already in use       | `lsof -i :8087` then `kill -9 <PID>`                                      |
+| Full fresh reset          | `docker compose down -v && docker compose up --build`                     |
 
 ---
 
@@ -346,7 +480,6 @@ spring-lens/
 
 ---
 
-## License  
+## License
 
-MIT
-This project is licensed under the MIT License © 2026 Yogesh Kale
+MIT License © 2026 Yogesh Kale
