@@ -21,16 +21,18 @@ public class HybridSearchRepository {
     // stemming, and multi-word queries without requiring special syntax from caller.
     // ts_rank scores each row by how well it matches the query.
     // Results ordered by rank descending — highest relevance first.
+    // Change the SQL constant — add tenant_id filter
     private static final String FTS_QUERY = """
-            SELECT id::text,
-                   content,
-                   metadata::text,
-                   ts_rank(fts_content, plainto_tsquery('english', :query)) AS rank
-            FROM vector_store
-            WHERE fts_content @@ plainto_tsquery('english', :query)
-            ORDER BY rank DESC
-            LIMIT :limit
-            """;
+        SELECT id::text,
+               content,
+               metadata::text,
+               ts_rank(fts_content, plainto_tsquery('english', :query)) AS rank
+        FROM vector_store
+        WHERE fts_content @@ plainto_tsquery('english', :query)
+          AND tenant_id = :tenantId::uuid
+        ORDER BY rank DESC
+        LIMIT :limit
+        """;
 
     public HybridSearchRepository(NamedParameterJdbcTemplate jdbcTemplate,
                                    HybridSearchProperties properties) {
@@ -48,11 +50,12 @@ public class HybridSearchRepository {
      * @param query natural language query string
      * @return list of FtsResult records ordered by rank descending
      */
-    public List<FtsResult> fullTextSearch(String query) {
+    public List<FtsResult> fullTextSearch(String query, UUID tenantId) {
         log.debug("FTS query: '{}'", query);
 
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("query", query)
+                .addValue("tenantId", tenantId)
                 .addValue("limit", properties.getFtsTopK());
 
         List<FtsResult> results = jdbcTemplate.query(FTS_QUERY, params, (rs, rowNum) ->

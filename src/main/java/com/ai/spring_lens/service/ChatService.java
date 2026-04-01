@@ -32,6 +32,7 @@ public class ChatService {
 
                     return new ChatResponse(
                             content,
+                            "DEFAULT",
                             groqResponse.model(),
                             groqResponse.usage().promptTokens(),
                             groqResponse.usage().completionTokens(),

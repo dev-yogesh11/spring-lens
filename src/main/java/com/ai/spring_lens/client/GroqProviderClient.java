@@ -57,7 +57,8 @@ public class GroqProviderClient implements ProviderClient {
 
             return new ProviderResponse(
                     response.getResult().getOutput().getText(),
-                    metadata != null ? metadata.getModel() : "groq",
+                    metadata != null ? metadata.getModel() : "groq-" + properties.getGroq().getModel(),
+                    "GROQ",
                     usage != null ? usage.getPromptTokens() : 0,
                     usage != null ? usage.getCompletionTokens() : 0,
                     usage != null ? usage.getTotalTokens() : 0,

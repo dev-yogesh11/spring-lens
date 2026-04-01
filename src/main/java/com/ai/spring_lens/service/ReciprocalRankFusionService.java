@@ -58,10 +58,10 @@ public class ReciprocalRankFusionService {
         );
 
         // Step 2: full-text search — keyword / exact term matching
-        List<FtsResult> ftsResults = hybridSearchRepository.fullTextSearch(query);
+        List<FtsResult> ftsResults = hybridSearchRepository.fullTextSearch(query,tenantId);
 
-        log.debug("Hybrid search: vectorResults={} ftsResults={} query='{}'",
-                vectorResults.size(), ftsResults.size(), query);
+        log.debug("Hybrid search for tenant Id {}: vectorResults={} ftsResults={} query='{}'",
+                tenantId,vectorResults.size(), ftsResults.size(), query);
 
         // Step 3: handle edge cases — if one source returns nothing, return the other
         if (vectorResults.isEmpty() && ftsResults.isEmpty()) {

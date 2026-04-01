@@ -26,12 +26,11 @@ import java.util.UUID;
 public class HybridRetrievalStrategy implements RetrievalStrategy {
 
     private final ReciprocalRankFusionService rrfService;
-    private final IngestionProperties properties;
 
-    public HybridRetrievalStrategy(ReciprocalRankFusionService rrfService,
-                                   IngestionProperties properties) {
+
+    public HybridRetrievalStrategy(ReciprocalRankFusionService rrfService) {
         this.rrfService = rrfService;
-        this.properties = properties;
+
     }
 
     @Override

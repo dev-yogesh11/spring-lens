@@ -178,6 +178,7 @@ public class SpringAiChatService {
                     return new ChatResponse(
                             res.content(),
                             res.model(),
+                            res.provider(),
                             res.promptTokens(),
                             res.completionTokens(),
                             res.totalTokens(),
@@ -192,14 +193,17 @@ public class SpringAiChatService {
                         response.promptTokens(),
                         response.completionTokens(),
                         response.totalTokens(),
-                        response.latencyMs()
+                        response.latencyMs(),
+                        response.model(),
+                        response.provider()
+
                 ).thenReturn(response)
                 )
                 .onErrorResume(ex -> {
                     log.warn("Fallback triggered message='{}' reason={}", message, ex.getMessage());
                     return Mono.just(new ChatResponse(
                             "Service temporarily unavailable. Please try again shortly.",
-                            "fallback", 0, 0, 0, 0L
+                            "fallback","fallback", 0, 0, 0, 0L
                     ));
                 });
     }
@@ -307,6 +311,7 @@ public class SpringAiChatService {
 
                         return new QueryResponse(
                                 res.content(),
+                                res.provider(),
                                 res.model(),
                                 sources,
                                 sources.isEmpty() ? 0.0 : 0.8,
@@ -329,10 +334,12 @@ public class SpringAiChatService {
                         response.promptTokens(),
                         response.completionTokens(),
                         response.totalTokens(),
-                        response.latencyMs()
+                        response.latencyMs(),
+                        response.model(),
+                        response.provider()
                 ).thenReturn(response))
                 .onErrorResume(ex -> Mono.just(new QueryResponse(
-                        "Service temporarily unavailable. Please try again shortly.","NA",
+                        "Service temporarily unavailable. Please try again shortly.","NA","NA",
                         List.of(), 0.0, UUID.randomUUID()
                 )));
     }

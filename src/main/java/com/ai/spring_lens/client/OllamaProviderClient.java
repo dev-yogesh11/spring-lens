@@ -54,6 +54,7 @@ public class OllamaProviderClient implements ProviderClient {
                     return new ProviderResponse(
                             (String) messageMap.get("content"),
                             "ollama-" + properties.getOllama().getModel(),
+                            "OLLAMA",
                             0, 0, 0,
                             System.currentTimeMillis() - start
                     );

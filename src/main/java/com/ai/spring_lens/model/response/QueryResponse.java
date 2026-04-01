@@ -6,6 +6,7 @@ import java.util.UUID;
 public record QueryResponse(
         String answer,
         String model,
+        String provider,
         List<CitedSource> sources,
         Double confidence,
         UUID queryId,
@@ -16,9 +17,9 @@ public record QueryResponse(
         Long latencyMs
 ) {
     // Backward-compatible constructor — used by error fallback paths
-    public QueryResponse(String answer,String model, List<CitedSource> sources,
+    public QueryResponse(String answer,String model,String provider, List<CitedSource> sources,
                          Double confidence, UUID queryId) {
-        this(answer, model,sources, confidence, queryId, "unknown", 0, 0, 0, 0L);
+        this(answer, model,provider,sources, confidence, queryId, "unknown", 0, 0, 0, 0L);
     }
 
     public record CitedSource(

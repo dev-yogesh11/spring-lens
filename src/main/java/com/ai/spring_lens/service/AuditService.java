@@ -55,47 +55,53 @@ public class AuditService {
      * @param latencyMs          end-to-end latency in milliseconds
      * @return empty Mono — fire and forget
      */
+// Add two params to recordQuery() signature
     public Mono<Void> recordQuery(TenantContext tenantContext,
-                                   String query,
-                                   String retrievalStrategy,
-                                   List<String> sourcesCited,
-                                   int promptTokens,
-                                   int completionTokens,
-                                   int totalTokens,
-                                   long latencyMs) {
+                                  String query,
+                                  String retrievalStrategy,
+                                  List<String> sourcesCited,
+                                  int promptTokens,
+                                  int completionTokens,
+                                  int totalTokens,
+                                  long latencyMs,
+                                  String llmProvider,
+                                  String llmModel) {
         return Mono.fromRunnable(() -> {
-            String queryHash = hashQuery(query);
-            double costUsd = costProperties.calculate(promptTokens, completionTokens);
+                    String queryHash = hashQuery(query);
+                    double costUsd = costProperties.calculate(promptTokens, completionTokens);
 
-            auditEventRepository.save(
-                    tenantContext.tenantId(),
-                    tenantContext.userId(),
-                    queryHash,
-                    retrievalStrategy,
-                    sourcesCited,
-                    promptTokens,
-                    completionTokens,
-                    totalTokens,
-                    costUsd,
-                    latencyMs
-            );
+                    auditEventRepository.save(
+                            tenantContext.tenantId(),
+                            tenantContext.userId(),
+                            queryHash,
+                            retrievalStrategy,
+                            sourcesCited,
+                            promptTokens,
+                            completionTokens,
+                            totalTokens,
+                            costUsd,
+                            latencyMs,
+                            llmProvider,  // ← new
+                            llmModel      // ← new
+                    );
 
-            log.info("Audit recorded: tenantId={} userId={} strategy={} " +
-                            "tokens={} cost=${} latencyMs={}",
-                    tenantContext.tenantId(),
-                    tenantContext.userId(),
-                    retrievalStrategy,
-                    totalTokens,
-                    String.format("%.6f", costUsd),
-                    latencyMs);
-        })
-        .subscribeOn(Schedulers.boundedElastic())
-        .doOnError(ex -> log.warn(
-                "Audit recording failed — response not affected: " +
-                "tenantId={} reason={}",
-                tenantContext.tenantId(), ex.getMessage()))
-        .onErrorResume(ex -> Mono.empty())
-        .then();
+                    log.info("Audit recorded: tenantId={} userId={} strategy={} " +
+                                    "tokens={} cost=${} latencyMs={} llmModel={}",  // ← add llmModel
+                            tenantContext.tenantId(),
+                            tenantContext.userId(),
+                            retrievalStrategy,
+                            totalTokens,
+                            String.format("%.6f", costUsd),
+                            latencyMs,
+                            llmModel);  // ← new
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .doOnError(ex -> log.warn(
+                        "Audit recording failed — response not affected: " +
+                                "tenantId={} reason={}",
+                        tenantContext.tenantId(), ex.getMessage()))
+                .onErrorResume(ex -> Mono.empty())
+                .then();
     }
 
     /**
@@ -109,17 +115,20 @@ public class AuditService {
      * @param latencyMs         time until first token streamed
      * @return empty Mono — fire and forget
      */
+// recordStream() — pass nulls, streaming has no model info reliably
     public Mono<Void> recordStream(TenantContext tenantContext,
-                                    String query,
-                                    String retrievalStrategy,
-                                    long latencyMs) {
+                                   String query,
+                                   String retrievalStrategy,
+                                   long latencyMs) {
         return recordQuery(
                 tenantContext,
                 query,
                 retrievalStrategy,
                 List.of(),
                 0, 0, 0,
-                latencyMs
+                latencyMs,
+                null,   // ← llmProvider unknown for streams
+                null    // ← llmModel unknown for streams
         );
     }
 

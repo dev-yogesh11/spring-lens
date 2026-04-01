@@ -60,7 +60,8 @@ public class OpenAiProviderClient implements ProviderClient {
 
             return new ProviderResponse(
                     response.getResult().getOutput().getText(),
-                    metadata != null ? metadata.getModel() : "openai",
+                    metadata != null ? metadata.getModel() : "openai-" + properties.getOpenai().getModel(),
+                    "OPENAI",
                     usage != null ? usage.getPromptTokens() : 0,
                     usage != null ? usage.getCompletionTokens() : 0,
                     usage != null ? usage.getTotalTokens() : 0,

@@ -21,18 +21,20 @@ import java.util.UUID;
 public class AuditEventRepository {
 
     private static final String INSERT_AUDIT_EVENT = """
-            INSERT INTO audit_events (
-                id, tenant_id, user_id, query_hash,
-                retrieval_strategy, sources_cited,
-                prompt_tokens, completion_tokens, total_tokens,
-                cost_usd, latency_ms, created_at
-            ) VALUES (
-                :id, :tenant_id, :user_id, :query_hash,
-                :retrieval_strategy, :sources_cited,
-                :prompt_tokens, :completion_tokens, :total_tokens,
-                :cost_usd, :latency_ms, :created_at
-            )
-            """;
+        INSERT INTO audit_events (
+            id, tenant_id, user_id, query_hash,
+            retrieval_strategy, sources_cited,
+            prompt_tokens, completion_tokens, total_tokens,
+            cost_usd, latency_ms, created_at,
+            llm_provider, llm_model
+        ) VALUES (
+            :id, :tenant_id, :user_id, :query_hash,
+            :retrieval_strategy, :sources_cited,
+            :prompt_tokens, :completion_tokens, :total_tokens,
+            :cost_usd, :latency_ms, :created_at,
+            :llm_provider, :llm_model
+        )
+        """;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -55,10 +57,12 @@ public class AuditEventRepository {
      * @param costUsd           calculated cost in USD
      * @param latencyMs         end-to-end latency in milliseconds
      */
+    // Add two params to save() signature
     public void save(UUID tenantId, UUID userId, String queryHash,
                      String retrievalStrategy, List<String> sourcesCited,
                      int promptTokens, int completionTokens, int totalTokens,
-                     double costUsd, long latencyMs) {
+                     double costUsd, long latencyMs,
+                     String llmProvider, String llmModel) {
 
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", UUID.randomUUID())
@@ -73,10 +77,12 @@ public class AuditEventRepository {
                 .addValue("total_tokens", totalTokens)
                 .addValue("cost_usd", costUsd)
                 .addValue("latency_ms", latencyMs)
-                .addValue("created_at", LocalDateTime.now());
+                .addValue("created_at", LocalDateTime.now())
+                .addValue("llm_provider", llmProvider)
+                .addValue("llm_model", llmModel);
 
         jdbcTemplate.update(INSERT_AUDIT_EVENT, params);
-        log.debug("Audit event saved: tenantId={} userId={} strategy={} cost={}",
-                tenantId, userId, retrievalStrategy, costUsd);
+        log.debug("Audit event saved: tenantId={} userId={} strategy={} cost={} llmModel={}",
+                tenantId, userId, retrievalStrategy, costUsd, llmModel); // ← add llmModel to log
     }
 }
