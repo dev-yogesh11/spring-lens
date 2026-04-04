@@ -17,7 +17,7 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # ── Config ────────────────────────────────────────────────────────────────────
-PROJECT_NAME="springlens"
+PROJECT_NAME="springlens-ai-platform"
 APP_IMAGE="spring-lens-app"
 RAGAS_IMAGE="spring-lens-ragas"
 VERSION=${1:-$(date +"%Y%m%d-%H%M%S")}
@@ -69,7 +69,7 @@ success "Images exported → ${RELEASE_DIR}/images.tar.gz"
 # ── Copy Deployment Files ─────────────────────────────────────────────────────
 log "Copying deployment files..."
 cp docker-compose.yaml "${RELEASE_DIR}/docker-compose.yaml"
-success "docker-compose.yml copied"
+success "docker-compose.yaml copied"
 
 # Copy .env.example if exists (never copy real .env into release)
 if [ -f ".env.example" ]; then

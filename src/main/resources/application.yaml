@@ -1,6 +1,6 @@
 spring:
   application:
-    name: spring-lens
+    name: springlens-ai-platform
   ai:
     openai:
       api-key: ${OPENAI_API_KEY}
@@ -59,7 +59,7 @@ springlens:
 
   llm:
     groq:
-      base-url: ${GROQ_BASE_URL:https://api.groq.com/openai/9}
+      base-url: ${GROQ_BASE_URL:https://api.groq.com/openai}
       api-key: ${GROQ_AI_API_KEY}
       model: llama-3.3-70b-versatile
       timeout: 15s
@@ -149,12 +149,12 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
   file:
-    name: logs/spring-lens.log
+    name: logs/springlens-ai-platform.log
   logback:
     rollingpolicy:
       max-file-size: 10MB
       max-history: 7
-      file-name-pattern: logs/spring-lens-%d{yyyy-MM-dd}.%i.log
+      file-name-pattern: logs/springlens-ai-platform-%d{yyyy-MM-dd}.%i.log
 
 management:
   endpoints:

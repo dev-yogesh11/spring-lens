@@ -1,4 +1,4 @@
-# SpringLens
+# SpringLens AI Platform
 
 > **Java-native AI knowledge platform.** Turn any document corpus into a queryable knowledge base with cited answers, retrieval quality measurement, and autonomous agents.
 
@@ -50,8 +50,8 @@ You need the following before starting:
 ### Step 1 — Clone the repository
 
 ```bash
-git clone https://github.com/yogeshkale/spring-lens.git
-cd spring-lens
+git clone https://github.com/yogeshkale/springlens-ai-platform.git
+cd springlens-ai-platform
 ```
 
 ---

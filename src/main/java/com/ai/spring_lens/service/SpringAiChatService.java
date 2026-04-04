@@ -311,8 +311,8 @@ public class SpringAiChatService {
 
                         return new QueryResponse(
                                 res.content(),
-                                res.provider(),
                                 res.model(),
+                                res.provider(),
                                 sources,
                                 sources.isEmpty() ? 0.0 : 0.8,
                                 UUID.randomUUID(),
