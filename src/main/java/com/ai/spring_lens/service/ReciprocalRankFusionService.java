@@ -3,6 +3,7 @@ package com.ai.spring_lens.service;
 import com.ai.spring_lens.config.HybridSearchProperties;
 import com.ai.spring_lens.repository.HybridSearchRepository;
 import com.ai.spring_lens.repository.HybridSearchRepository.FtsResult;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -18,6 +19,7 @@ public class ReciprocalRankFusionService {
     private final VectorStore vectorStore;
     private final HybridSearchRepository hybridSearchRepository;
     private final HybridSearchProperties properties;
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     public ReciprocalRankFusionService(VectorStore vectorStore,
                                        HybridSearchRepository hybridSearchRepository,
@@ -157,8 +159,6 @@ public class ReciprocalRankFusionService {
         try {
             // Use Spring AI's internal Jackson ObjectMapper via a simple parse
             // metadata is a flat JSON object from PostgreSQL json column
-            com.fasterxml.jackson.databind.ObjectMapper mapper =
-                    new com.fasterxml.jackson.databind.ObjectMapper();
             @SuppressWarnings("unchecked")
             Map<String, Object> result = mapper.readValue(metadataJson, Map.class);
             return result;

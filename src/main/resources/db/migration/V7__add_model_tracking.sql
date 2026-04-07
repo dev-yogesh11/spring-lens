@@ -56,3 +56,20 @@ SET embedding_model      = 'text-embedding-ada-002',
 WHERE id = 'a0000000-0000-0000-0000-000000000001'
   AND embedding_model       IS NULL
   AND embedding_dimensions  IS NULL;
+
+
+  -- ============================================================
+  -- Adds btree expression index to support fast duplicate file
+  -- detection query in DocumentIngestionService.isDuplicate().
+  --
+  -- The duplicate check queries:
+  --   WHERE metadata->>'original_file_name' = ?
+  --     AND metadata->>'tenant_id' = ?
+  -- IDEMPOTENT: CREATE INDEX IF NOT EXISTS is safe to re-run.
+  -- ============================================================
+
+  CREATE INDEX IF NOT EXISTS idx_vector_store_file_tenant
+      ON vector_store (
+          (metadata->>'original_file_name'),
+          (metadata->>'tenant_id')
+      );

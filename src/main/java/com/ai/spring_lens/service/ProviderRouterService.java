@@ -5,14 +5,12 @@ import com.ai.spring_lens.client.OllamaProviderClient;
 import com.ai.spring_lens.client.OpenAiProviderClient;
 import com.ai.spring_lens.client.dto.ProviderResponse;
 import com.ai.spring_lens.security.TenantContext;
-import com.ai.spring_lens.service.BudgetEnforcementService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
 
 @Service
 public class ProviderRouterService {
@@ -20,16 +18,13 @@ public class ProviderRouterService {
     private static final Logger log = LoggerFactory.getLogger(ProviderRouterService.class);
 
     private final GroqProviderClient groq;
-    private final BudgetEnforcementService budgetService;
     private final OpenAiProviderClient openai;
     private final OllamaProviderClient ollama;
 
     public ProviderRouterService(
-            GroqProviderClient groq,
-            BudgetEnforcementService budgetService, OpenAiProviderClient openai, OllamaProviderClient ollama
+            GroqProviderClient groq,OpenAiProviderClient openai, OllamaProviderClient ollama
     ) {
         this.groq = groq;
-        this.budgetService = budgetService;
         this.openai = openai;
         this.ollama = ollama;
     }

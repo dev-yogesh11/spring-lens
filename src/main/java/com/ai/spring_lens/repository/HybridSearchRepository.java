@@ -34,6 +34,12 @@ public class HybridSearchRepository {
         LIMIT :limit
         """;
 
+    private static final String DUPLICATE_CHECK_QUERY = """
+    SELECT COUNT(*) FROM vector_store
+    WHERE metadata->>'original_file_name' = :originalFileName
+      AND metadata->>'tenant_id' = :tenantId
+    """;
+
     public HybridSearchRepository(NamedParameterJdbcTemplate jdbcTemplate,
                                    HybridSearchProperties properties) {
         this.jdbcTemplate = jdbcTemplate;
@@ -71,6 +77,23 @@ public class HybridSearchRepository {
         return results;
     }
 
+    /**
+     * Checks whether a document with the given file name already exists for the tenant.
+     * Uses a direct JDBC metadata query against the vector_store table instead of
+     * similarity search — existence is a metadata question, not a semantic one.
+     *
+     * @param originalFileName the original uploaded file name to check for duplicates
+     * @param tenantId         the tenant identifier used to scope the check
+     * @return true if a document with the same file name exists for the tenant, false otherwise
+     */
+    public boolean existsByFileNameAndTenant(String originalFileName, String tenantId) {
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("originalFileName", originalFileName)
+                .addValue("tenantId", tenantId);
+
+        Integer count = jdbcTemplate.queryForObject(DUPLICATE_CHECK_QUERY, params, Integer.class);
+        return count != null && count > 0;
+    }
     /**
      * Immutable result record from full-text search.
      * id matches vector_store primary key — used for deduplication in RRF merge.

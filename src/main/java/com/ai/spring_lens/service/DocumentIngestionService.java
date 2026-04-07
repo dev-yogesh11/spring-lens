@@ -1,11 +1,11 @@
 package com.ai.spring_lens.service;
 
 import com.ai.spring_lens.config.IngestionProperties;
+import com.ai.spring_lens.repository.HybridSearchRepository;
 import com.ai.spring_lens.security.TenantContext;
 import com.ai.spring_lens.service.strategy.PdfReaderStrategy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.core.io.Resource;
@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -24,10 +25,11 @@ public class DocumentIngestionService {
     private final TokenTextSplitter splitter;
     private final IngestionProperties properties;
     private final Map<String, PdfReaderStrategy> readerStrategies;
+    private final HybridSearchRepository hybridSearchRepository;
 
     public DocumentIngestionService(VectorStore vectorStore,
                                     IngestionProperties properties,
-                                    Map<String, PdfReaderStrategy> readerStrategies) {
+                                    Map<String, PdfReaderStrategy> readerStrategies, HybridSearchRepository hybridSearchRepository) {
         this.vectorStore = vectorStore;
         this.properties = properties;
         this.splitter = TokenTextSplitter.builder()
@@ -38,6 +40,7 @@ public class DocumentIngestionService {
                 .withKeepSeparator(properties.isKeepSeparator())
                 .build();
         this.readerStrategies = readerStrategies;
+        this.hybridSearchRepository = hybridSearchRepository;
     }
 
     /**
@@ -102,28 +105,25 @@ public class DocumentIngestionService {
     }
 
     /**
-     * Duplicate check is now scoped per-tenant, consistent with how
-     * SpringAiChatService scopes similarity search by tenant_id.
+     * Determines whether the uploaded file has already been ingested for the given tenant.
+     * Delegates to a direct metadata query rather than vector similarity search,
+     * which is both faster and semantically correct for an exact-match existence check.
+     *
+     * @param originalFileName the original name of the uploaded file
+     * @param tenantContext    the current tenant context providing the tenant identifier
+     * @return true if the file has already been ingested, false otherwise or if the check fails
      */
     private boolean isDuplicate(String originalFileName, TenantContext tenantContext) {
         try {
-            List<Document> existing = vectorStore.similaritySearch(
-                    SearchRequest.builder()
-                            .query(originalFileName)
-                            .topK(1)
-                            .filterExpression(
-                                    "original_file_name == '" + originalFileName + "'" +
-                                            " && tenant_id == '" + tenantContext.tenantId() + "'"
-                            )
-                            .build()
+            return hybridSearchRepository.existsByFileNameAndTenant(
+                    originalFileName,
+                    String.valueOf(tenantContext.tenantId())
             );
-            return !existing.isEmpty();
         } catch (Exception e) {
             log.warn("Duplicate check failed, proceeding: {}", e.getMessage());
             return false;
         }
     }
-
     public record IngestionResult(
             String fileName,
             int chunks,
